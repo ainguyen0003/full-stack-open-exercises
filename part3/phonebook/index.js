@@ -1,64 +1,74 @@
+require('dotenv').config()
 const express = require('express')
 const app = express()
 const morgan = require('morgan')
-const cors = require('cors')
-app.use(cors())
+const Person = require('./models/person')
 app.use(express.static('dist'))
 app.use(express.json())
+// app.use(requestLogger) ; in part 3c
 morgan.token('data', function (req, res) { return JSON.stringify(req.body) })
 app.use(morgan(':method :url :status :res[content-length] - :response-time ms :data'))
 // app.use(morgan('tiny'))
 // app.use(morgan(':data'))
 
-let persons = [
-    { 
-      "id": "1",
-      "name": "Arto Hellas", 
-      "number": "040-123456"
-    },
-    { 
-      "id": "2",
-      "name": "Ada Lovelace", 
-      "number": "39-44-5323523"
-    },
-    { 
-      "id": "3",
-      "name": "Dan Abramov", 
-      "number": "12-43-234345"
-    },
-    { 
-      "id": "4",
-      "name": "Mary Poppendieck", 
-      "number": "39-23-6423122"
-    }
-]
+// let persons = [
+//     { 
+//       "id": "1",
+//       "name": "Arto Hellas", 
+//       "number": "040-123456"
+//     },
+//     { 
+//       "id": "2",
+//       "name": "Ada Lovelace", 
+//       "number": "39-44-5323523"
+//     },
+//     { 
+//       "id": "3",
+//       "name": "Dan Abramov", 
+//       "number": "12-43-234345"
+//     },
+//     { 
+//       "id": "4",
+//       "name": "Mary Poppendieck", 
+//       "number": "39-23-6423122"
+//     }
+// ]
 
 app.get('/info', (request, response) => {
-  response.send(
-    '<p>Phonebook has info for ' + persons.length + ' people</p>'
-    + '<p>' + new Date() + '</p>'
-)
+  const count = Person.countDocuments({})
+  .then(count =>
+    response.send(
+      '<p>Phonebook has info for ' + count + ' people</p>'
+      + '<p>' + new Date() + '</p>'
+  )
+  )
 })
 
 app.get('/api/persons', (request, response) => {
-  response.json(persons)
+  Person.find({}).then(persons => {
+    response.json(persons)
+  })
 })
 
-app.get('/api/persons/:id', (request, response) => {
-  const id = request.params.id
-  const person = persons.find(person => person.id === id)
-  if (person) {
-    response.json(person)
-  } else {
-    response.status(404).end()
-  }
+app.get('/api/persons/:id', (request, response, next) => {
+  const person = Person.findById(request.params.id).then(person => {
+    if (person) {
+      response.json(person)
+    }
+    else {
+      response.status(404).end()
+    }
+  }).catch(error => next(error))
 })
 
-app.delete('/api/persons/:id', (request, response) => {
+app.delete('/api/persons/:id', (request, response, next) => {
   const id = request.params.id
-  persons = persons.filter(person => person.id !== id)
-
-  response.status(204).end()
+  Person.findByIdAndDelete(id)
+    .then(result => {
+      console.log('deleted', result)
+      response.status(204).end()
+    })
+    .catch(error => next(error))
 })
 
 const generateId = () => {
@@ -74,31 +84,68 @@ app.post('/api/persons', (request, response) => {
       error: 'content missing' 
     })
   }
-  if (persons.find(person => person.name === body.name)) {
-    return response.status(400).json({ 
-      error: 'name must be unique' 
-    })
-  }
+  // if (persons.find(person => person.name === body.name)) {
+  //   return response.status(400).json({ 
+  //     error: 'name must be unique' 
+  //   })
+  // }
 
-  let id = generateId()
-  while (persons.find(person => person.id === id))
-  {
-    id = generateId()
-  }
-  const person = {
+  // let id = generateId()
+  // while (persons.find(person => person.id === id))
+  // {
+  //   id = generateId()
+  // }
+  const person = new Person({
     name: body.name,
     number: body.number,
-    id: id,
-  }
+    // id: id,
+  })
 
-  persons = persons.concat(person)
+  person.save().then(savedPerson => {
+    response.json(savedPerson)
+  })
 
-  response.json(person)
+  // response.json(person)
 })
 
+app.put('/api/persons/:id', (request, response, next) => {
+  const {name, number} = request.body
+  Person.findById(request.params.id)
+    .then(person => {
+      if (!person) {
+        return response.status(404).end()
+      }
+      person.name = name
+      person.number = number
+      return person.save().then(updatedPerson => {
+        response.json(updatedPerson)
+      })
+    })
+    .catch(error => next(error))
+})
 
-
-const PORT = process.env.PORT || 3001
+// const PORT = process.env.PORT || 3001 - this is before the .env file was created
+const PORT = process.env.PORT
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
 })
+
+const unknownEndpoint = (request, response) => {
+  response.status(404).send({ error: 'unknown endpoint' })
+}
+
+// handler of requests with unknown endpoint
+app.use(unknownEndpoint)
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
+
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformatted id' })
+  } 
+
+  next(error)
+}
+
+// this has to be the last loaded middleware, also all the routes should be registered before this!
+app.use(errorHandler)
