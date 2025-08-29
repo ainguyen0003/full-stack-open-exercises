@@ -26,7 +26,7 @@ const personSchema = new mongoose.Schema({
     minLength: 8,
     validate: {
       validator: function(v) {
-        return /\d{2,3}-\d+/.test(v);
+        return /\d{2,3}-\d+/.test(v) && !/\d{4,}-\d+/.test(v);
       },
       message: props => `${props.value} not valid, try xx-xxxxxxx or xxx-xxxxxxx`
     }
